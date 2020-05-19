@@ -1,0 +1,61 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(scales)
+library(plyr)
+library(readr)
+
+```
+
+# Preparing the Tempreture and Ambient Tempreture Data
+```{r}
+rawweathertypedata <- read_csv("weathertype.csv")
+
+```
+
+
+```{r}
+#3564
+for (i in 1:3564){
+  
+  rawweathertypedata[i,2]$weathertype <- 1
+  
+  # tempday<- rawweathertypedata[i,1]$datetimehourly
+  # x <- strsplit(tempday[[1]][1], ' ' )
+  # 
+  # timevar <- (x[[1]][2])
+  # timefor <- hm(as.character(timevar))
+  # 
+  # 
+  # 
+  # hourvar <- hour(timefor)
+
+  #print(hourvar)
+  
+
+  # if(hourvar >4 && hourvar <11){
+  #   rawsectiondata[i,2]$section <- 1
+  # }
+  # else if (hourvar >10 && hourvar < 15){
+  #   rawsectiondata[i,2]$section <- 2}
+  # else if (hourvar>14 && hourvar <22) {
+  #   rawsectiondata[i,2]$section <- 3
+  # }else if (hourvar >21 && hourvar < 24){
+  #   rawsectiondata[i,2]$section <- 4
+  # }else if (hourvar ==0 | hourvar < 5){
+  #   rawsectiondata[i,2]$section <- 4
+  #   }
+  
+}
+```
+
+```{r}
+ write.csv(rawweathertypedata[,1:2], "trainweathertypedata.csv")
+
+
+```

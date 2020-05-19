@@ -1,0 +1,58 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(scales)
+library(plyr)
+library(readr)
+
+```
+
+# Preparing the Tempreture and Ambient Tempreture Data
+```{r}
+rawsectiondata <- read_csv("../../anaheiminput/datacomplete.csv")
+
+```
+
+
+```{r}
+
+for (i in 1:4740){
+  tempday<- rawsectiondata[i,1]$datetimehourly
+  x <- strsplit(tempday[[1]][1], ' ' )
+
+  timevar <- (x[[1]][2])
+  timefor <- hm(as.character(timevar))
+  
+
+  
+  hourvar <- hour(timefor)
+
+  #print(hourvar)
+  
+
+  if(hourvar >4 && hourvar <11){
+    rawsectiondata[i,2]$section <- 1
+  }
+  else if (hourvar >10 && hourvar < 15){
+    rawsectiondata[i,2]$section <- 2}
+  else if (hourvar>14 && hourvar <22) {
+    rawsectiondata[i,2]$section <- 3
+  }else if (hourvar >21 && hourvar < 24){
+    rawsectiondata[i,2]$section <- 4
+  }else if (hourvar ==0 | hourvar < 5){
+    rawsectiondata[i,2]$section <- 4
+    }
+  
+}
+```
+
+```{r}
+ write.csv(rawsectiondata[,1:2], "trainsetsection.csv")
+
+
+```

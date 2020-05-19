@@ -1,0 +1,135 @@
+---
+title: "R Notebook"
+output: html_notebook
+author: "Hoofar Pourzand"
+---
+
+Poisson regression model. Treat year, month, weekday, hour, holiday, weather condition as fixed effects. Add atemp, sales and quantity as other covariates.
+```{r}
+
+train = read.csv('../../data/hoofar_raj/trainpos.csv', stringsAsFactors = FALSE)
+test  = read.csv('../../data/hoofar_raj/testpos.csv', stringsAsFactors = FALSE)   
+data  = read.csv('../../data/hoofar_raj/pos_parsed.csv',stringsAsFactors = FALSE)   
+
+library('stats')
+suppressMessages(library('zoo'))
+library('xts')
+suppressMessages(library('lubridate'))
+library('sandwich')
+```
+
+```{r}
+
+#deal with date variable
+train['Year']  = factor(train$year_col)
+#train['Month'] = factor(train$month_col)
+train['WDay']  = factor(train$day_col)
+train['Hour']  = factor(train$hour_col)
+train['asDate']  = factor(train$timedatepos)
+
+test['Year']  = factor(test$year_col)
+#test['Month'] = factor(test$month_col)
+test['WDay']  = factor(test$day_col)
+test['Hour']  = factor(test$hour_col)
+test['asDate']  = factor(test$timedatepos)
+
+#train$weathertype = factor(train$weathertype, labels = c("Good", "Normal", "Bad", "Very Bad"))
+train$holiday = factor(train$holiday, labels = c('No','Yes'))
+
+#$weathertype = factor(test$weathertype, labels = c("Good", "Normal", "Bad", "Very Bad"))
+test$holiday = factor(test$holiday, labels = c('No','Yes'))
+
+#subset data
+#train_data = train[c('Year','Month','WDay','Hour','holiday','atemp','totalsales','quantity','pumps')]
+#test_data  = test[c('Year','Month','WDay','Hour','holiday','atemp','totalsales','quantity')]  #remove the extra columns
+#to better assess the poisson remove data with low factors 
+
+train_data = train[c('asDate', 'Year','WDay','Hour','holiday','atemp','totalsales','quantity','pumps')]
+test_data  = test[c('asDate', 'Year','WDay','Hour','holiday','atemp','totalsales','quantity')]  #remove the extra columns
+```
+
+```{r}
+
+# fit poisson regression
+fit <- glm(pumps ~ ., data=train_data, family="poisson")
+prediction = predict(fit, test_data , type="response", se.fit=TRUE)
+
+data$pumps = test_data['pumps'] = round(prediction$fit) 
+write.csv(data,file='poissonregdata.csv')
+
+
+
+#combined the training and testing data, create xts object
+train_xts = xts(train$pumps,order.by = strptime(train_data$asDate  ))
+test_xts  = xts(test_data$count,order.by = strptime(test_data$datetime))
+whole_xts = merge(train_xts,test_xts,all=TRUE)
+
+
+
+#plot training and testing count
+par(las=1,mar=c(4,4,3,1))
+layout(matrix(c(1,2,3,3), 2, 2, byrow = TRUE))
+plot(train_xts, main='Traing Data')
+plot(test_xts, main='Testing Data')
+plot(as.zoo(whole_xts), screens=1,main='Whole Data',ylab='',xlab='')
+
+```
+
+
+```{r}
+
+#analysis regression results
+summary(fit)
+
+```
+
+```{r}
+#analysis regression results
+cov.m <- vcovHC(fit, type="HC0")
+std.err <- sqrt(diag(cov.m))
+r.est <- cbind(Estimate= coef(fit), "Robust SE" = std.err,
+               "Pr(>|z|)" = 2 * pnorm(abs(coef(fit)/std.err), lower.tail=FALSE),
+               LL = coef(fit) - 1.96 * std.err,
+               UL = coef(fit) + 1.96 * std.err)
+```
+
+```{r}
+par(las=1,mar=c(4,4,3,1))
+layout(matrix(c(1,2,3,3), 2, 2, byrow = TRUE))
+##################
+#plot month effect
+##################
+eps = 0.2
+est_month = r.est[3:13,]
+plot(est_month[,1],ylim=c(0,1),xlab='Month',
+     main='Relative Month Effect (Baseline Jan)',xaxt = 'n',ylab='',cex=1,pch=22)
+axis(1,1:11,2:12)
+segments(1:11-eps,est_month[,4],1:11+eps,est_month[,4],lwd=2)
+segments(1:11-eps,est_month[,5],1:11+eps,est_month[,5],lwd=2)
+
+####################
+#plot weekday effect
+####################
+eps = 0.1
+est_wd = r.est[14:19,]
+plot(est_wd[,1],ylim=c(0,0.2),xlab='Week Day',
+     main='Relative Weekday Effect (Baseline Monday)',xaxt = 'n',ylab='',cex=1.5,pch=22)
+axis(1,1:6,2:7)
+segments(1:6-eps,est_wd[,4],1:6+eps,est_wd[,4],lwd=2)
+segments(1:6-eps,est_wd[,5],1:6+eps,est_wd[,5],lwd=2)
+
+####################
+#plot Hour effect
+####################
+eps = 0.1
+est_h = r.est[20:42,]
+plot(est_h[,1],ylim=c(-3,3),xlab='Hour',
+     main='Relative Hour Effect (Baseline Midnight)',xaxt = 'n',ylab='',pch=22)
+axis(1,1:23,1:23)
+segments(1:23-eps,est_h[,4],1:23+eps,est_h[,4],lwd=1)
+segments(1:23-eps,est_h[,5],1:23+eps,est_h[,5],lwd=1)
+abline(h=0,lty=2)
+```
+
+
+

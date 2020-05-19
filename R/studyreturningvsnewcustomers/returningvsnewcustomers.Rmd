@@ -1,0 +1,135 @@
+---
+title: "R Notebook"
+output: "html_notebook"
+author:"Hoofar Pourzand"
+---
+
+```{r}
+ 
+library(ggplot2) # Data visualization
+library(readr) # CSV file I/O, e.g. the read_csv function
+
+# Input data files are available in the "../input/" directory.
+# For example, running this (by clicking run or pressing Shift+Enter) will list the files in the input directory
+
+system("ls ../input")
+
+# Any results you write to the current directory are saved as output.
+train <- read.csv(file = "../../data/hoofar_raj/tidydata.csv", stringsAsFactors = FALSE)
+
+suppressWarnings(suppressMessages(library('lubridate')))
+train$Hour <- as.factor(hour(ymd_hms(train$datetime)))
+#We count returning customers as registered customers. Non returning customers as casual customers.
+HourCasualRegistered <- aggregate(train[,c("casual","registered")], by=list(train$Hour), "sum")
+colnames(HourCasualRegistered) <- c('Hour','casual','registered')
+
+suppressWarnings(suppressMessages(library('reshape2')))
+HourCasualRegistered <- melt(HourCasualRegistered[,c('Hour','casual','registered')], id.vars = 1)
+colnames(HourCasualRegistered) <- c('Hour','PumpType', 'H2Pumps')
+
+ggplot(data = HourCasualRegistered, mapping = aes(x = Hour, y = Pumps)) +
+  geom_bar(mapping = aes(fill = PumpType), stat = "identity", position="dodge")
+
+```
+```{r}
+WorkingCasualRegistered <- aggregate(train[,c("casual","registered")], by=list(train$Hour, train$workingday), "sum")
+colnames(WorkingCasualRegistered) <- c('Hour', 'workingday', 'casual','registered')
+
+WorkingCasualRegistered$registered_WorkingDay <- WorkingCasualRegistered$registered[WorkingCasualRegistered$workingday == 1]
+WorkingCasualRegistered$registered_NonWorkingDay <- WorkingCasualRegistered$registered[WorkingCasualRegistered$workingday == 0]
+WorkingCasualRegistered$casual_WorkingDay <- WorkingCasualRegistered$casual[WorkingCasualRegistered$workingday == 1]
+WorkingCasualRegistered$casual_NonWorkingDay <- WorkingCasualRegistered$casual[WorkingCasualRegistered$workingday == 0]
+
+WorkingCasualRegistered <- WorkingCasualRegistered[1:24,c('Hour','registered_WorkingDay','registered_NonWorkingDay','casual_WorkingDay','casual_NonWorkingDay')]
+
+suppressWarnings(suppressMessages(library('reshape2')))
+WorkingCasualRegistered <- melt(WorkingCasualRegistered[,c('Hour','registered_WorkingDay', 'registered_NonWorkingDay','casual_WorkingDay', 'casual_NonWorkingDay')], id.vars = 1)
+colnames(WorkingCasualRegistered) <- c('Hour', 'H2PumpType_WorkingDay', 'Pumps')
+
+ggplot(data = WorkingCasualRegistered, mapping = aes(x = Hour, y = Pumps)) +
+  geom_bar(mapping = aes(fill = H2PumpType_WorkingDay), stat = "identity", position="dodge")
+```
+
+```{r}
+train$Month <- as.factor(month(ymd_hms(train$datetime)))
+a <- aggregate(train[,c("count")], by=list(train$Hour, train$Month), "sum")
+colnames(a) <- c('Hour','Month','Pumps')
+
+ggplot(data = a, 
+       mapping = aes(x = Hour, y = Pumps, color = Month)) + 
+  geom_point(data = a, aes(group = as.factor(Month))) +
+  geom_line(data = a, aes(group = as.factor(Month)))
+```
+```{r}
+train$Season2[train$Month %in% c(1,2,3)] <- 1
+train$Season2[train$Month %in% c(4,11,12)] <- 2
+train$Season2[train$Month %in% c(9,10,5)] <- 3
+train$Season2[train$Month %in% c(6,7,8)] <- 4
+train$Season2 <- factor(train$Season2)
+
+a <- aggregate(train[,c("count")], by=list(train$Hour, train$Season2), "sum")
+colnames(a) <- c('Hour','Season2','Pumps')
+
+ggplot(data = a, 
+       mapping = aes(x = Hour, y = Pumps, color = Season2)) + 
+  geom_point(data = a, aes(group = Season2)) +
+  geom_line(data = a, aes(group = Season2))
+```
+
+```{r}
+train$Month <- as.factor(month(ymd_hms(train$datetime)))
+ggplot(data = train[order(train$temp),], 
+       mapping = aes(x = Month, y = count, fill = temp)) + 
+  geom_bar(stat = "identity")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "green", midpoint = mean(train$temp))
+```
+
+```{r}
+WorkingCasualRegisteredWeather <- aggregate(train[,c("casual","registered")], by=list(train$Hour, train$workingday, train$Season2), "sum")
+colnames(WorkingCasualRegisteredWeather) <- c('Hour', 'workingday', 'Season2', 'casual', 'registered')
+
+registered <- WorkingCasualRegisteredWeather[,c('Hour', 'Season2', 'workingday', 'registered')]
+
+registered_WorkingDay <- registered[registered$workingday == 1,]
+ggplot(data = registered_WorkingDay, mapping = aes(x = Hour, y = registered, fill = Season2)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Registered H2 Pumps on Working Days Varied on Month Variable")
+```
+
+```{r}
+WorkingCasualRegisteredWeather <- aggregate(train[,c("casual","registered")], by=list(train$Hour, train$workingday, train$weather), "sum")
+colnames(WorkingCasualRegisteredWeather) <- c('Hour', 'workingday', 'weather', 'CasualH2Pumps', 'RegisteredH2Pumps')
+registered <- WorkingCasualRegisteredWeather[,c('Hour', 'weather', 'workingday', 'RegisteredH2Pumps')]
+registered$weather <- factor(registered$weather)
+
+registered_WorkingDay <- registered[registered$workingday == 1,]
+ggplot(data = registered_WorkingDay, mapping = aes(x = Hour, y = RegisteredH2Pumps, fill = weather)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Registered H2 Pumps on Working Days Varied on weather Variable")
+```
+
+```{r}
+WorkingCasualRegisteredWeather <- aggregate(train[,c("casual","registered")], by=list(train$Hour, train$workingday, train$weather), "sum")
+colnames(WorkingCasualRegisteredWeather) <- c('Hour', 'workingday', 'weather', 'CasualH2Pumps', 'RegisteredH2Pumps')
+casual <- WorkingCasualRegisteredWeather[,c('Hour', 'weather', 'workingday', 'CasualH2Pumps')]
+casual$weather <- factor(casual$weather)
+
+casual_WorkingDay <- casual[casual$workingday == 1,]
+ggplot(data = casual_WorkingDay, mapping = aes(x = Hour, y = CasualH2Pumps, fill = weather)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Casual H2 Pumps on Working Days Varied on weather Variable")
+
+```
+
+```{r}
+WorkingCasualRegisteredWeather <- aggregate(train[,c("casual","registered")], by=list(train$Hour, train$workingday, train$weather), "sum")
+colnames(WorkingCasualRegisteredWeather) <- c('Hour', 'workingday', 'weather', 'CasualH2Pumps', 'RegisteredH2Pumps')
+casual <- WorkingCasualRegisteredWeather[,c('Hour', 'weather', 'workingday', 'CasualH2Pumps')]
+casual$weather <- factor(casual$weather)
+
+casual_NonWorkingDay <- casual[casual$workingday == 0,]
+ggplot(data = casual_NonWorkingDay, mapping = aes(x = Hour, y = CasualH2Pumps, fill = weather)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Casual H2 Pumps on Non-Working Days Varied on weather Variable")
+```
+

@@ -1,0 +1,53 @@
+---
+title: "R Notebook"
+author:"Hoofar Pourzand"
+output: "html_notebook"
+---
+
+# Status: Still Testing on 5000 data
+
+```{r}
+library(readr)
+library(quantmod)
+library(fBasics)
+library(fGarch)
+
+posdata <- read.csv("../../data/hoofar_raj/trainpos.csv", header = TRUE)
+```
+
+```{r}
+basicStats(posdata$queueline)
+head(posdata)
+plot.ts(log(posdata$queueline[1:24])) #changed from 3550
+plot.ts(log(posdata$queueline))
+plot.ts(posdata$queueline[1:24]) #from 1200 to 3200
+plot(posdata$queueline)
+a = log(posdata$queueline)
+t.test(a)
+plot.ts(log(posdata$queueline[1:5])) #[9500:10000]
+acf(log(posdata$queueline[5:15]))  #[8000:10000]
+pacf(log(posdata$queueline[15:25]))  #[8000:10000]
+m1=garchFit(~arma(0,1)+garch(1,1),data=a,trace=F)
+# plot(m1)
+m2=arima(a, order=c(0,0,1))
+# tsdiag(m2) # check assumptions
+m3=garchFit(~garch(1,1),data=a,trace=F)
+summary(m3)
+# plot(m3)
+m4=garchFit(~garch(1,1),data=a,trace=F,cond.dist="std")
+summary(m4)
+# plot(m4)
+m5=garchFit(~garch(1,1),data=a,trace=F,cond.dist="sstd")
+summary(m5)
+# plot(m5)
+m6=garchFit(~aparch(1,1), data=a, delta=2, include.delta=F,trace=F,cond.dist="sstd")
+summary(m6)
+# plot(m6)
+# m1 as a final
+# equation:
+# rt = 5.359760 + at - 0.684824*at-1
+# vart = 0.085885 + 1.000000*(at-1^2) + 0.115992*(vart-1)
+predict(m1, 1) # 1 step ahead
+```
+
+

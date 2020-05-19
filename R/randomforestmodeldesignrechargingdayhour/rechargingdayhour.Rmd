@@ -1,0 +1,611 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(readr)
+library(scales)
+
+train <- read_csv("../input/train.csv")
+
+```
+
+
+```{r}
+train <- read_csv("../anaheiminput/cureddata.csv")
+train$datetimehourly <- as.POSIXlt(train$datetimehourly, tz="GMT",format="%m/%d/%y %H:%M ")
+train$hour  <- hour(ymd_hms(train$datetimehourly))
+train$day   <- wday(ymd_hms(train$datetimehourly), label=TRUE)
+
+train$times <- train$datetimehourly #format="%H:%M:%S"), format="%H:%M:%S") #2016-12-02 19:00:00
+
+```
+```{r}
+p <- ggplot(train, aes(x=times, y=queueline, color=day)) +
+     geom_smooth(ce=FALSE, fill=NA, size=2) +
+     theme(text = element_text(size=20) , axis.text.x = element_text(angle=90, size=8, hjust=.5,  vjust=.5, face="plain")) +
+     xlab("Hour of the Day") +
+     scale_x_datetime(breaks = date_breaks("4 hours"), labels=date_format("%h")) + #%I:%M %p
+     ylab("Average Number of H2 Charges") +
+     scale_color_discrete("") +
+     ggtitle("Some message, and More Messages here\n") +
+     theme(plot.title=element_text(size=18))
+
+ggsave("h2_recharges_over_time_by_temp.png")
+p
+```
+
+
+
+
+
+#H2 recharges by time and weather conditions like tempreture
+```{r}
+
+
+
+#train <- read.csv("../input/train.csv")
+#test  <- read.csv("../input/test.csv")
+
+# Write some basic stats to the log
+cat("Number of training rows ", nrow(train), "\n")
+#cat("Number of test rows ", nrow(test), "\n")
+head(train)
+```
+
+
+```{r}
+#train$hour  <- hour(ymd_hms(train$datetime))
+#train$times <- as.POSIXct(strftime(ymd_hms(train$datetime), format="%H:%M:%S"), format="%H:%M:%S")
+train$jitter_times <- train$times+minutes(round(runif(nrow(train),min=0,max=59)))
+train$day <- wday(ymd_hms(train$datetimehourly), label=TRUE)
+train$temp_f <- train$atemp*9/5+32
+```
+
+# Main Plots
+```{r}
+
+# Tweak these to show something else on the axes
+x_axis <- "jitter_times"
+y_axis <- "queueline"
+color  <- "temp_f" # for example swap this to "humidity"
+p <- ggplot(train[train$workday==1,], aes_string(x=x_axis, y=y_axis, color=color)) +
+     geom_point(position=position_jitter(w=0.0, h=0.4)) +
+     theme_light(base_size=20) +
+     xlab("Hour of the Day") +
+     scale_x_datetime(breaks = date_breaks("4 hours"), labels=date_format("%I:%M %p")) + 
+     ylab("Total Count of H2 Recharges") +
+     scale_colour_gradientn("Temp (°F)", colours=c("#5e4fa2", "#3288bd", "#66c2a5", "#abdda4", "#e6f598", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142")) +
+     ggtitle("Some Important Message that Goes Here\n") +
+     theme(plot.title=element_text(size=18))
+
+ggsave("distribution_of_h2_recharges_by_time_and_temperature.png", p)
+```
+
+# Random Forest Model
+
+## This script creates a sample submission using Random Forests 
+## and also plots the feature importance from the trained model. 
+
+
+
+
+```{r}
+
+library(randomForest)
+
+set.seed(1)
+
+#train loaded already
+test <- read.csv("../anaheiminput/sampletest.csv")
+test$datetimehourly <- as.POSIXlt(test$datetimehourly, tz="GMT",format="%m/%d/%y %H:%M ")
+
+
+
+extractFeatures <- function(data) {
+  features <- c("section",
+                "holiday",
+                "workday",
+                "weathertype",
+                "atemp",
+                "atemX",
+                "totalsales",
+                "quantity",
+                "hour")
+  
+  data$hour <- hour(ymd_hms(data$datetimehourly))
+  return(data[,features])
+}
+```
+
+```{r}
+
+trainFea <- extractFeatures(train)
+testFea  <- extractFeatures(test)
+
+submission <- data.frame(datetime=test$datetimehourly, count=NA)
+
+# We only use past data to make predictions on the test set, 
+# so we train a new model for each test set cutoff point
+for (i_year in unique(year(ymd_hms(test$datetimehourly)))) {
+  for (i_month in unique(month(ymd_hms(test$datetimehourly)))) {
+    cat("Year: ", i_year, "\tMonth: ", i_month, "\n")
+    testLocs   <- year(ymd_hms(test$datetimehourly))==i_year & month(ymd_hms(test$datetimehourly))==i_month
+    testSubset <- test[testLocs,]
+    trainLocs  <- ymd_hms(train$datetimehourly) <= min(ymd_hms(testSubset$datetime)) #datetimehourly
+    rf <- randomForest(extractFeatures(train[trainLocs,]), train[trainLocs,"queueline"], ntree=100)
+    submission[testLocs, "queueline"] <- predict(rf, extractFeatures(testSubset))
+  }
+}
+
+write.csv(submission, file = "random_forest_submission.csv", row.names=FALSE)
+```
+
+```{r}
+# Train a model across all the training data and plot the variable importance
+rf <- randomForest(extractFeatures(train), train$queueline, ntree=100, importance=TRUE)
+imp <- importance(rf, type=1)
+featureImportance <- data.frame(Feature=row.names(imp), Importance=imp[,1])
+```
+
+```{r}
+p <- ggplot(featureImportance, aes(x=reorder(Feature, Importance), y=Importance)) +
+     geom_bar(stat="identity", fill="#53cfff") +
+     coord_flip() + 
+     theme_light(base_size=20) +
+     xlab("Importance") +
+     ylab("") + 
+     ggtitle("Random Forest Feature Importance\n") +
+     theme(plot.title=element_text(size=18))
+
+ggsave("feature_importance.png", p)
+```
+# New Updates to Random Forest Model
+## Train a model across all the training data and plot the variable importance
+
+```{r}
+#test <- read.csv("../anaheiminput/cureddata.csv.csv")
+#trainrf <- read.csv("../anaheiminput/cureddata.csv")
+
+trainrf$datetimehourly <- as.POSIXlt(trainrf$datetimehourly, tz="GMT",format="%m/%d/%y %H:%M ")
+
+extractFeatures <- function(data) {
+  features <- c(
+                "holiday",
+                "workday",
+                "weathertype",
+                "atemp",
+                "totalsales",
+                "quantity",
+                "hour",
+                "month")
+  
+  data$hour <- hour(ymd_hms(data$datetimehourly))
+  data$month <- month(ymd_hms(data$datetimehourly))
+
+  return(data[,features])
+}
+
+sample_locs <- sample.int(nrow(trainrf))
+
+
+
+cutoff <- as.integer(nrow(trainrf)*0.7)
+
+internal_train <- trainrf[sample_locs[1:cutoff],]
+
+internal_valid <- trainrf[sample_locs[(cutoff+1):nrow(trainrf)],]
+
+features <- extract_features(internal_train)
+```
+We have information on weather, date, time, and the hourly H2 counts of pumps at the station. We want to determine what factors predict better this demand, as well as how these factors impact the demand.
+
+In order to do this, we'll train a random forest model on the available data & then interrogate the model to figure out what it's learned.
+```{r}
+rf <- randomForest(features, internal_train$count, ntree=100, importance=TRUE)
+```
+From this model, we calculate the relative importance of the input features.
+```{r, echo=FALSE}
+
+imp <- importance(rf, type=1)
+featureImportance <- data.frame(Feature=row.names(imp), Importance=imp[,1])
+
+ggplot(featureImportance, aes(x=reorder(Feature, Importance), y=Importance)) +
+     geom_bar(stat="identity", fill="#53cfff") +
+     coord_flip() + 
+     theme_light(base_size=16) +
+     xlab("") + 
+     ylab("Relative Importance") +
+     theme(plot.title   = element_text(size=18),
+           strip.text.x = element_blank(),
+           axis.text.x  = element_blank(),
+           axis.ticks.x = element_blank())
+
+```
+
+
+We can use the random forest model to generate partial plots of the individual features, enabling us to visualize what the model's learned about them.
+
+ 
+```{r, echo=FALSE}
+
+partials <- data.frame()
+
+for (i in seq_along(names(features))) {
+  partial <- partialPlot(rf, features, names(features)[i], plot=FALSE)
+  xt <- rescale(partial$x)
+  partials <- rbind(partials, data.frame(x=partial$x, xt=xt, y=partial$y, feature=names(features)[i]))
+}
+
+ranges <- ddply(partials, "feature", function(d) {
+  r <- range(d$y)
+  data.frame(feature=d$feature[1], range=r[2]-r[1])
+})
+
+features_to_plot <- ranges[ranges$range>0.05*max(ranges$range),"feature"]
+
+ggplot(partials[partials$feature %in% features_to_plot,], aes(x=xt, y=y, color=feature)) +
+  geom_line(size=2) +
+  theme_light(base_size=16) +
+  xlab("Feature Range (Min to Max)") +
+  ylab("Hourly H2 Recharges") 
+
+```
+When we make predictions on our internal validation set, we see that the correlations are high.
+```{r, echo=FALSE}
+valid_features <- extract_features(internal_valid)
+valid_features$Predictions <- predict(rf, extract_features(internal_valid))
+valid_features$Actuals     <- internal_valid$count
+
+ggplot(valid_features, aes(x=Actuals, y=Predictions)) +
+  geom_point() + 
+  theme_light(base_size=16) +
+  xlab("Actual Hourly H2 Count Pump Car ") +
+  ylab("Predicted Hourly H2 Count Pump Car") +
+  ggtitle(paste0("Correlation: ", round(cor(valid_features$Actuals, valid_features$Predictions), 3)))
+```
+
+# Final Prediction (Continued) hebaodan/final/code
+
+# More Data Visuallization
+## Which part of the day do people stop by at the anaheim station?
+
+```{r}
+library(plyr)
+library(readr)
+train$partoftheday  <- factor(train$section, labels = c("Morning", "Noon", "Evening", "Early Morning"))
+#day for Weekday
+#hour and times the same
+```
+
+# First round of new plots
+```{r}
+section_summary <- ddply(train,.(partoftheday,hour), summarise, count = mean(queueline))
+
+```
+
+```{r}
+#not usuable
+p <- ggplot(train, aes(x=times, y=queueline, color=day))+
+         geom_line() +
+         theme_light(base_size=10) +
+         xlab("Hour of the Day") +
+         scale_x_datetime(breaks = date_breaks("4 hours")) + 
+         ylab("Number of H2 charges") +
+         scale_color_discrete("") +
+         ggtitle("People rcharge over the evening\n") +
+         theme(plot.title=element_text(size=14))
+    
+      
+
+ggsave("h2_charges_by_time_of_day.png")
+```
+
+
+
+```{r}
+library(quantmod)
+library(fBasics)
+library(fGarch)
+basicStats(train$queueline)
+head(train)
+plot.ts(log(train$queueline[1:1000]))
+plot.ts(log(train$queueline))
+plot.ts(train$queueline[950:3000])
+plot(train$queueline)
+
+a = log(train$queueline)
+t.test(a)
+
+```
+
+
+```{r}
+plot.ts(log(train$queueline[950:3000]))
+acf(log(train$queueline[800:3500]))
+pacf(log(train$queueline[800:3000]))
+```
+```{r}
+train$month <- month(ymd_hms(train$datetimehourly))
+train$year <- year(ymd_hms(train$datetimehourly))
+# Study of the total sales and quantity over days and hours of the day
+train[train$year == 2016,]$month <- train[train$year == 2016,]$month + 12
+summary(train)
+
+reg_sc_wd0 <- tapply(train[train$workday ==1,]$returningcustomer, as.factor(train[train$workday ==1,]$month), FUN = function(x) x/max(x))
+#train$reg_sc <- NA
+reg_sc_wd0[[1]]
+#reg_sc_wd0 <- lapply(reg_sc_wd0, cbind)
+reg_sc_wd0f <- c()
+
+for (i in 1:24) reg_sc_wd0f <- c(reg_sc_wd0f, reg_sc_wd0[[i]])
+#summary(reg_sc_wd0f)
+
+```
+```{r}
+summary(train)
+head(train)
+str(train)
+
+## Adding the dependent variables in test data set
+# test$returningcustomer <- 0
+# test$newcustomer <- 0
+# test$queueline <- 0
+
+## combining Both Dataset train to review the hist in the final distribution
+#combineddata <- rbind(train,test)
+## Fining Missing Data if any
+#table(is.na(combineddata)) # There is no missing data in the data set
+
+## Understanding the distribution of numerical variables and generating a frequency table for numeric variables
+q<- par(mfrow = c(4,2))
+p <- par(mar = rep(2,4))
+#hist(train$section)
+hist(train$weathertype)
+hist(train$totalsales)
+hist(train$holiday)
+hist(train$workday)
+hist(train$atemp)
+hist(train$quantity)
+```
+
+```{r}
+## Few inferences can be drawn by looking at the these histograms:
+## a.) Season has four categories of almost equal distribution
+## b.) Weather 1 has higher contribution i.e. mostly clear weather. 
+
+prop.table(table(train$weathertype))
+prop.table(table(train$workday))
+prop.table(table(train$holiday))
+
+## Few inferences can be drawn by looking at the these histograms:
+## a.) Season has four categories of almost equal distribution
+## b.) Weather 1 has higher contribution i.e. mostly clear weather. 
+
+prop.table(table(data$weather))
+prop.table(table(data$workingday))
+prop.table(table(data$holiday))
+## c.) working days and variable holiday is also showing a similar inference
+## d.) Variables temp, atemp, humidity and windspeed looks naturally distributed
+
+## Hypothesis Testing
+# 1.) Checking Hourly Trend - There must be high demand during office timings. 
+#     Early morning and late evening can have different trends 
+
+## Creating a hour column from datetime column in the dataset
+train$hour_tst <- substr(train$datetimehourly,12,13)
+train$hour_tst <- as.factor(train$hour_tst)
+
+## plot the hourly trend of count over hours and check if hypothesis is correct or not
+### For this split the data set into training and test data set
+trainset <- train[as.integer(substr(train$datetimehourly,9,10))<20,]
+testset <- train[as.integer(substr(train$datetimehourly,9,10))>19,]
+## > nrow(train) [1] 10886
+## > nrow(test) [1] 6493
+
+
+ggplot(data=trainset,aes(x=hour,y=queueline))+geom_point()+theme_classic()
+boxplot(trainset$queueline~trainset$hour, xlab = "hour", ylab = "count of customers")
+
+```
+```{r}
+
+ qplot(hour,queueline,data = trainset, geom = c("boxplot"), fill =atemp, main = "Number of H2 recharging by hour",
+       xlab = "hour", ylab = "count in the queue")
+
+
+# Infrence from boxplot
+## High : 7-9 and 17-19 hours
+## Average : 10-16 hours
+## Low : 0-6 and 20-24 hours
+
+### distribution of returning and new customers to the anaheim station.
+## New customer
+qplot(hour,newcustomer,data = trainset, geom = c("boxplot"), fill =atemp, main = "Number of H2 charges by hour for New Customers",
+      xlab = "hour", ylab = "count of new customers")
+
+
+## Registered User
+qplot(hour,returningcustomer,data = trainset, geom = c("boxplot"), fill =atemp, main = "Number of H2 charges by hour for Returning Customers",
+      xlab = "hour", ylab = "count of registered customers")
+```
+
+### Returning Customers have similar a trend as the queuline. Whereas, new customers have a different trend. 
+### Thus,we can say that ‘hour’ is significant variable and our hypothesis is more likely to be ‘true’.
+
+## Regarding Outliers
+### There are a lot of outliers while plotting the count of returning and new customers. 
+### These values are not generated due to error, so we consider them as natural outliers.
+### To treat such outliers, we will use logarithm transformation.
+### Let’s look at the similar plot after log transformation.
+```{r}
+qplot(hour,log(queueline),data = trainset, geom = c("boxplot"), fill =atemp, main = "Number H2 Charges by hour for log count of cars in the queue",
+      xlab = "hour", ylab = "log customers in the queue")
+      
+```
+      
+```{r}
+# Hypothesis 2.) Daily Trend:Returning customers demand more H2 Charges on weekdays as compared to weekend or holiday.
+## Create new variable for day from datetimehourly variable
+head(train$datetimehourly)
+dateseth2 <- substr(train$datetimehourly,1,10)
+daysh2 <- weekdays(as.Date(dateseth2))
+dateseth2$daysh2 <- daysh2
+```
+#Study the Returning and the New Customers
+
+```{r}
+##1 Reading Data
+
+
+library(party)
+library(caret)
+#library(rattle)
+library(RColorBrewer)
+testdata <-  read.csv('../anaheiminput/cureddata.csv', stringsAsFactors = F)
+traindata <- read.csv('../anaheiminput/sampletest.csv', stringsAsFactors = F)
+dim(testdata)
+dim(traindata)
+names(traindata)
+names(testdata)
+
+```
+
+```{r}
+testdata$newcustomer=NA
+testdata$returningcustomer=NA
+testdata$queueline=NA
+names(testdata)
+
+
+combi=rbind(traindata,testdata)
+str(combi)
+
+names=c("section","holiday","workday","weathertype","datetimehourly")
+combi[,names] <- lapply(combi[,names] , as.factor)
+str(combi) # Now the structure of data looks good
+summary(combi) # It seems to be no missing values need to impute
+```
+##2 Data Exploring
+#2a. Categories variables
+#We will see how each group relate to "queueline","returningcustomer","newcustomer"
+```{r}
+
+train <- combi[as.integer(substr(combi$datetimehourly,9,10))<20,]
+
+
+aggregate(queueline ~ workday + section + weathertype, data=train,FUN=mean)
+
+
+aggregate(newcustomer ~ workday + section + weathertype, data=train,FUN=mean) 
+
+
+aggregate(returningcustomer ~ workday +section + weathertype, data=train,FUN=mean)
+
+```
+#2b.Numeric variables
+
+```{r}
+library(e1071)
+hist(combi$totalsales)
+skewness(combi$totalsales)
+hist(combi$atemp)
+skewness(combi$atemp)
+hist(combi$atemX)
+skewness(combi$atemX)
+hist(combi$quantity)# quite positive skew
+skewness(combi$quantity)#the skew is acceptable
+kurtosis(combi$quantity)#the skew is acceptable
+
+#Checking correlation of continuous variables
+num = sapply(combi, is.numeric)
+cols = combi [,num]
+cor(cols)
+data=cols[,!(colnames(cols) %in% c("returningcustomer","newcustomer","queueline"))]
+str(data)
+highcor=findCorrelation(cor(data), cutoff=.8)
+length(highcor)
+highcor # location of a variable needs to remove
+combi<-combi[,!(colnames(combi) %in% c("atemp"))]# remove "atemp"
+```
+##3 Feature Engineer
+#3a.Time-hour
+# "datetime" has different day-time in train & test data, so it must be splitted back into train & test data, as well as into specific date & time
+
+```{r}
+combi$time=substr(combi$datetimehourly,12,13) # only hour (ther is no minute or second)
+combi$time=as.factor(combi$time)
+train=combi[as.integer(substr(combi$datetimehourly,9,10))<20,]
+#Time has 24 hours in a day, it means 24 different values, so it should be a factor variable. And, it should be categorie into groups for buidling a better model. Using boxplot to explose the trend of time
+boxplot(train$queueline~train$time,xlab="hour", ylab="queueline") # using train set to determine
+
+```
+
+
+#It is commonly divided into 3 groups: High - Middle - Low.
+# Group 1-High: 7-9 and 16-19 hours
+# Group 2-Average: 10-15 hours
+# Group 3-Low: 0-6 and 20-24 hours
+#However, there are also groups of  casual and registered users.Let's see how they are
+```{r}
+
+boxplot(train$returningcustomer~train$time,xlab="hour", ylab="returning customers")
+boxplot(train$newcustomer~train$time,xlab="hour", ylab="new customers")
+```
+
+#From these boxplots, Registered users have similar trend as count. But, casual users is different trend. Let's label them
+# registered users
+
+```{r}
+
+combi$time=as.integer(combi$time)
+combi$rehour=0
+combi$rehour[combi$time>=0&combi$time<=6]=3
+combi$rehour[combi$time>=20&combi$time<=24]=3
+combi$rehour[combi$time>=10&combi$time<=15]=2
+combi$rehour[combi$time>=7&combi$time<=9]=1
+combi$rehour[combi$time>=16&combi$time<=19]=1
+combi$rehour=as.factor(combi$rehour)
+
+# New Users
+combi$cahour=0
+combi$cahour[combi$time>=0&combi$time<=7]=3
+combi$cahour[combi$time>=8&combi$time<=10]=2
+combi$cahour[combi$time>=20&combi$time<=24]=2
+combi$cahour[combi$time>=11&combi$time<=19]=1
+combi$cahour=as.factor(combi$cahour)
+str(combi)
+#3b.Now, date 
+date=substr(combi$datetimehourly,1,10)
+combi$day=day(as.Date(date))
+combi$day=as.factor(combi$day)
+train=combi[as.integer(substr(combi$datetime,9,10))<20,]
+boxplot(train$count~train$day,xlab="Days", ylab="count of users")
+boxplot(train$registered~train$day,xlab="Days", ylab="registered")
+boxplot(train$casual~train$day,xlab="Days", ylab="casual")
+
+#Once again, count& registered are same trend, while casual is different from them. However,"day" is not like "hour", where "hour" show dramatically the trend  better in sales.In "day", the trend is not significant pattern.So, I think about how to combine "holiday","working","day" to be one variable names "daytype",which just has 2 factor: workingday (1) & freetime (0)
+combi$daytype=0
+combi$daytype[combi$holiday==0 & combi$workingday==1]=1
+combi$daytype[combi$holiday==1 & combi$workingday==0]=0
+combi$daytype=factor(combi$daytype)
+str(combi)
+
+
+#3c.With month
+
+combi$month=substr(combi$datetime,6,7)
+combi$month=as.factor(combi$month)
+train=combi[as.integer(substr(combi$datetime,9,10))<20,]
+boxplot(train$count~train$month,xlab="Month", ylab="count")
+boxplot(train$registered~train$month,xlab="Month", ylab="register")
+boxplot(train$casual~train$month,xlab="Month", ylab="casual")
+
+```
+
+
+

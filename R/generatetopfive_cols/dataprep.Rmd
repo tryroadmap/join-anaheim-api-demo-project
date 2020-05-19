@@ -1,0 +1,186 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(scales)
+library(plyr)
+library(readr)
+
+```
+
+
+```{r}
+
+rawdata <- read_csv("./../../dataprep/SuccessfulPOSRaw.csv")
+
+```
+# Check if it is a returning customer or new
+```{r}
+#maxn <-  3493
+#maxn <-  2768
+maxn <- 2927-720-5-10 #make sure we don't overbound
+for (i in 1:maxn){
+  #print(rawdata$returning[1])
+  #get transaction id and card id for the first pos
+  #tranid <- rawdata$`Transaction #`[i]
+  #print(tranid)
+  searchkey <- rawdata$cardIdentifier[i]
+  print(searchkey)
+  #loop for finding a match in the next month return returning=1 if match made.
+  counter <- i+5  #skip multiple tries of the same card
+  topc <- counter+720
+  for (j in counter:topc ){
+    # print("this is counter:")
+    # print(counter)
+    # print("this is i:")
+    # print(i)
+    if (searchkey == rawdata$cardIdentifier[j]){ 
+        #&&  isTRUE(rawdata$`Card Identifier`[j] 
+      #print("ok==========================")
+      #print(rawdata$`Transaction #`[j])
+      rawdata$returning[i]=1
+      rawdata$returning[j]=1
+      
+      }
+  }
+}
+```
+
+```{r}
+ #save dataframe in csv from 15 to 20
+  write.csv(rawdata[1:1988,1:12], "customerreturndata.csv")  #cut out NA- for a cleaner data
+  
+```
+
+```{r}
+
+#datetime: calender date + timestamp (hourly) format: 12/4/16 0:00 12/4/16 1:00 12/4/16 2:00
+#          e.g. 12/3/16 0:00 means the period [0:00 - 1:00) on 12/3/16. 
+#          so a sale closed at 12/3/16 11:25 will be recorded in the 12/3/16 11:00.
+#season- seasons into launch of the station 1= winter (dec, jan, feb)  2= spring(march, april, may)
+#holiday- 1 if it is a holiday format: 0,1
+#workday- 1 if it is a workday format: 0,1
+#weatherX- Severity of the weather 1 2 3
+#       1 - clear or few clouds in the sky, 2- Light rain and scattered clouds  3-thunderstorm, heavy rain, fog
+#total sale in dollars
+#quantity (kg)
+#newcustomer
+#returningcustomer
+#queueline
+#3588
+
+```
+
+```{r}
+
+#data fields
+cureddatatopfive <- read_csv("POScured_Rreadable.csv")
+```
+```{r}
+maxn <- 3554
+
+for (i in 1:maxn){
+
+  #initiallize the five columns to zero
+  cureddatatopfive[i,2]$totalsales<- 0
+  cureddatatopfive[i,3]$quantity <- 0
+  cureddatatopfive[i,4]$newcustomer <- 0
+  cureddatatopfive[i,5]$returningcustomer <- 0
+  cureddatatopfive[i,6]$queueline <- 0
+  
+  }
+
+```
+
+
+
+
+
+
+```{r}
+maxn <- 3554
+for (i in 1:maxn){
+  #everything below
+
+  
+  #from raw data
+  tempday<- cureddatatopfive[i,9]$POSDateTime
+  #grab values you need
+  tempsales <- cureddatatopfive[i,11]$Totalpaid
+  tempq <- cureddatatopfive[i,10]$Quantity
+  tempret <- cureddatatopfive[i,15]$returning
+  #tempsales <- cureddatatopfive[i,11]$Totalpaid
+  
+  #grab the time stance of the sale
+  x <- strsplit(tempday[[1]][1], ' ' )
+  #datestring <- format(tempday, format= "%m/%d/%y")
+  datestring <- as.Date(x[[1]][1], "%m/%d/%y")
+  timevar <- (x[[1]][2])
+  timefor <- hm(as.character(timevar))
+  
+  yearvar <- year(datestring)
+  monthvar <- month(datestring)
+  dayvar <- day(datestring)
+  
+  hourvar <- hour(timefor)
+  
+  print(tempday)
+  
+  cureddatatopfive[i,19]$X19 <- yearvar
+  cureddatatopfive[i,20]$X20 <-  monthvar
+  cureddatatopfive[i,21]$X21 <- dayvar
+  cureddatatopfive[i,22]$X22 <- hourvar
+  
+  
+  #apply offseting method
+   #filling in the atemp
+  if(yearvar == 2016){
+    offsetval <- 1
+  }else{
+    offsetval <- 12
+  }
+
+  positionvalue <- offsetval + (yearvar-2016)*8760 + (monthvar-12)*730 + (dayvar - 3)*24 + (hourvar - 0)
+  updatetotal <- as.numeric(sub('\\$','',as.character(tempsales)))
+  # #update totalsales
+  #print(updatetotal)
+  cureddatatopfive[positionvalue, 2]$totalsales <-  updatetotal + as.numeric(cureddatatopfive[positionvalue, 2]$totalsales )
+  #update quantity
+  #print(tempq)
+  cureddatatopfive[positionvalue, 3]$quantity <-  tempq + as.numeric(cureddatatopfive[positionvalue, 3]$quantity )
+  #update returning
+  #print(tempret)
+  if (tempret ==1) {
+  cureddatatopfive[positionvalue, 5]$returningcustomer <-  tempret + as.numeric(cureddatatopfive[positionvalue, 5]$returningcustomer )
+  #update queue line
+  cureddatatopfive[positionvalue, 6]$queueline <- 1+  cureddatatopfive[positionvalue, 6]$queueline
+  }else if (tempret ==0) {
+  cureddatatopfive[positionvalue, 4]$newcustomer <-  1 + as.numeric(cureddatatopfive[positionvalue, 4]$newcustomer ) #1: don't miss the new customer in counting
+  #update queue line
+    cureddatatopfive[positionvalue, 6]$queueline <- 1+  cureddatatopfive[positionvalue, 6]$queueline
+   # print("updated the queue line")
+  #update returning
+  #print("ok for newcustomers")
+  }
+  
+
+}
+
+
+```
+
+```{r}
+#save dataframe in csv from 15 to 20
+write.csv(cureddatatopfive[,1:6], "exporttop5.csv")
+```
+
+```{r}
+#save dataframe in csv from 15 to 20
+write.csv(rawdata[,14:25], "traintesting2.csv")
+
+```

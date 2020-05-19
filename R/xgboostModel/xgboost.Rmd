@@ -1,0 +1,63 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr, quietly = T, warn.conflicts = F)
+library(data.table, quietly = T, warn.conflicts = F)
+library(fasttime, quietly = T, warn.conflicts = F)
+library(lubridate, quietly = T, warn.conflicts = F)
+library(xgboost, quietly = T, warn.conflicts = F)
+
+
+h2pumps = data.table::fread("../../data/hoofar_raj/trainpos.csv")
+test = data.table::fread("../../data/hoofar_raj/testpos.csv")
+```
+
+
+```{r}
+h2pumps$pumps = log1p(h2pumps$pumps)
+
+
+h2pumps %>% 
+    mutate(hour = h2pumps$hour_col,
+           month = h2pumps$month_col,
+           year = h2pumps$year_col,
+           wday = h2pumps$workday )-> h2pumps
+
+test %>% 
+    mutate(hour = test$hour_col,
+           month = test$month_col,
+           year = test$year_col,
+           wday = test$workday) -> test
+```
+
+```{r}
+head(h2pumps, 3)
+```
+
+```{r}
+X_train = h2pumps[2:13] %>% select(-pumps , -datetimehourly, -returningcustomer, - newcustomer) %>% as.matrix()
+y_train = h2pumps$pumps
+
+dtrain = xgb.DMatrix(X_train, label = y_train)
+model = xgb.train(data = dtrain, nround = 150, max_depth = 5, eta = 0.1, subsample = 0.9)
+```
+
+```{r}
+xgb.importance(feature_names = colnames(X_train), model) %>% xgb.plot.importance()
+
+```
+
+
+```{r}
+X_test = test[2:13] %>% select(-pumps , -datetimehourly, -returningcustomer, - newcustomer) %>% as.matrix()
+y_test = test$pumps
+preds = predict(model, X_test)
+preds = expm1(preds)
+solution = data.frame(datetime = test$timedatepos, pumps = preds)
+write.csv(solution, "solutionxgboost.csv", row.names = FALSE)
+```
+

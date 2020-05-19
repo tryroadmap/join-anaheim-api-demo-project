@@ -1,0 +1,16 @@
+Package: anaheim
+Title: Hoofar Pourzand’s methods and tools for modeling and data visualization on anaheim project.
+Version: 0.0.9
+#Authors@R: person(“Hoofar”, “Pourzand”, email = “hp@lotustech.io”, role = c("aut", "cre”))
+Description: Anaheim Package reads three formats of data, storage data, pos data and filling data. It predicts four variables and also wraps all the necessary methods for data visualization and analysis. 
+Depends: R (>= 3.3.3)
+License: file LICENSE
+Encoding: UTF-8
+LazyData: true
+Maintainer: Hoofar Pourzand <hp@lotustech.io>
+URL: https://www.liveawslinkposthere:3000
+NeedsCompilation: no
+Repository: GitHub.com/office206 Repository
+Packaged: Sat Jul 29 19:18:43 EDT 2017
+Date/Publication: Sat Jul 29 19:18:43 EDT 2017
+Suggests: testthat
